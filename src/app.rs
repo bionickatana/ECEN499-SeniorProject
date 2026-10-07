@@ -12,8 +12,8 @@ use crate::{
     config,
     events::{AppEvent, EventQueue},
     plugins::{
-        AppContext, Plugin, reporter::ReporterPlugin, status_led::StatusLedPlugin,
-        thermocouples::ThermocouplePlugin, uart::UartPlugin,
+        AppContext, Plugin, debug_console::DebugConsolePlugin, reporter::ReporterPlugin,
+        status_led::StatusLedPlugin, thermocouples::ThermocouplePlugin, uart::UartPlugin,
     },
     services::{
         sensor_data::SensorDataService,
@@ -30,6 +30,8 @@ pub struct App {
     uart: UartPlugin,
     thermocouples: ThermocouplePlugin,
     reporter: ReporterPlugin,
+    debug_console: DebugConsolePlugin,
+    thermocouple_poll_count: u32,
 }
 
 impl App {
@@ -38,6 +40,7 @@ impl App {
             timer,
             status_led,
             thermocouple,
+            debug_console,
         } = board;
         let status_led = StatusLedPlugin::new(status_led);
 
@@ -50,6 +53,8 @@ impl App {
             uart: UartPlugin::new(),
             thermocouples: ThermocouplePlugin::new(thermocouple),
             reporter: ReporterPlugin::new(),
+            debug_console: DebugConsolePlugin::new(debug_console),
+            thermocouple_poll_count: 0,
         }
     }
 
@@ -74,7 +79,15 @@ impl App {
             };
 
             self.uart.poll(&mut context);
-            self.thermocouples.poll(&mut context);
+            self.debug_console.poll_usb();
+            self.thermocouple_poll_count += 1;
+            let thermocouple_interval_polls =
+                (config::THERMOCOUPLE_READ_INTERVAL_MS / config::APP_LOOP_DELAY_MS).max(1);
+            if self.thermocouple_poll_count >= thermocouple_interval_polls {
+                self.thermocouple_poll_count = 0;
+                self.thermocouples.poll(&mut context);
+                self.debug_console.poll(&mut context);
+            }
             self.reporter.poll(&mut context);
 
             if context.events.contains(AppEvent::UartActivity) {

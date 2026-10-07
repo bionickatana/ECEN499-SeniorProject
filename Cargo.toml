@@ -13,3 +13,6 @@ panic-halt = "0.2.0"
 pio = "0.3.0"
 embedded-hal = "1.0.0"
 fixed-point = {version = "1.0.2", default-features = false}
+heapless = "0.9.3"
+usb-device = "0.3.2"
+usbd-serial = "0.2.2"

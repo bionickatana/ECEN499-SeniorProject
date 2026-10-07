@@ -7,6 +7,8 @@
 
 use rp235x_hal as hal;
 
+use core::mem::MaybeUninit;
+
 use embedded_hal::digital::OutputPin;
 use hal::{
     Sio, Watchdog,
@@ -24,11 +26,19 @@ use hal::{
 
 use crate::{config, plugins::status_led::Ws2812Hardware};
 
+use usb_device::{bus::UsbBusAllocator, prelude::*};
+use usbd_serial::SerialPort;
+
 pub struct Board {
     pub timer: Timer<CopyableTimer0>,
     pub status_led: Ws2812Hardware,
     pub thermocouple: ThermocoupleHardware,
+    pub debug_console: DebugConsoleHardware,
 }
+
+type UsbBus = hal::usb::UsbBus;
+
+static mut USB_BUS_ALLOCATOR: MaybeUninit<UsbBusAllocator<UsbBus>> = MaybeUninit::uninit();
 
 pub type ThermocoupleSpi = Spi<
     Enabled,
@@ -46,6 +56,11 @@ pub type ThermocoupleCs = Pin<Gpio1, FunctionSioOutput, PullDown>;
 pub struct ThermocoupleHardware {
     pub spi: ThermocoupleSpi,
     pub cs: ThermocoupleCs,
+}
+
+pub struct DebugConsoleHardware {
+    pub usb_dev: UsbDevice<'static, UsbBus>,
+    pub serial: SerialPort<'static, UsbBus>,
 }
 
 impl Board {
@@ -89,23 +104,54 @@ impl Board {
             &clocks,
         );
 
+        let debug_console =
+            init_debug_console(pac.USB, pac.USB_DPRAM, clocks.usb_clock, &mut pac.RESETS);
+
         // UART is intentionally not initialized yet. When contributors implement
         // it, add its hardware resource struct to `Board` so the matching plugin
         // owns only the peripheral it needs.
         let _ = config::UART_BAUD;
         let _ = config::UART_TX_PIN;
         let _ = config::UART_RX_PIN;
-        let _ = config::SPI_SCK_PIN;
-        let _ = config::SPI_MOSI_PIN;
-        let _ = config::SPI_MISO_PIN;
-        let _ = config::THERMOCOUPLE_CS_PINS;
 
         Self {
             timer,
             status_led,
             thermocouple,
+            debug_console,
         }
     }
+}
+
+fn init_debug_console(
+    usb: pac::USB,
+    usb_dpram: pac::USB_DPRAM,
+    usb_clock: hal::clocks::UsbClock,
+    resets: &mut pac::RESETS,
+) -> DebugConsoleHardware {
+    let usb_bus = hal::usb::UsbBus::new(usb, usb_dpram, usb_clock, true, resets);
+
+    // The USB device and CDC serial class borrow the bus allocator for the full
+    // firmware lifetime. Board initialization runs once before the app starts.
+    let usb_bus_allocator = unsafe {
+        let allocator = core::ptr::addr_of_mut!(USB_BUS_ALLOCATOR);
+        (*allocator).write(UsbBusAllocator::new(usb_bus));
+        &*(*allocator).as_ptr()
+    };
+
+    let serial = SerialPort::new(usb_bus_allocator);
+    let usb_dev = UsbDeviceBuilder::new(usb_bus_allocator, UsbVidPid(0x16c0, 0x27dd))
+        .strings(&[StringDescriptors::default()
+            .manufacturer("ECEN499")
+            .product("Thermocouple Debug Console")
+            .serial_number("sw_demo")])
+        .unwrap()
+        .max_packet_size_0(64)
+        .unwrap()
+        .device_class(2)
+        .build();
+
+    DebugConsoleHardware { usb_dev, serial }
 }
 
 fn init_thermocouple_spi(

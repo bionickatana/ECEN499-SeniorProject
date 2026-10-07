@@ -9,6 +9,7 @@ use crate::{
     services::{sensor_data::SensorDataService, status::StatusService},
 };
 
+pub mod debug_console;
 pub mod reporter;
 pub mod status_led;
 pub mod thermocouples;

@@ -23,6 +23,9 @@ pub const WS2812_PIO_FREQ_HZ: u32 = 8_000_000;
 /// task scheduler.
 pub const APP_LOOP_DELAY_MS: u32 = 5;
 
+/// MAX6675 thermocouple read interval.
+pub const THERMOCOUPLE_READ_INTERVAL_MS: u32 = 1_000;
+
 /// Default UART baud rate placeholder.
 ///
 /// The UART contributor should update this once the external-device protocol is
@@ -46,7 +49,7 @@ pub const SPI_MOSI_PIN: u8 = 3;
 pub const SPI_MISO_PIN: u8 = 0;
 
 /// MAX6675 SPI clock rate.
-pub const SPI_BAUD_HZ: u32 = 4_300_000;
+pub const SPI_BAUD_HZ: u32 = 0_100_000;
 
 /// Chip-select pins for four thermocouple devices. Only channel 0 is populated
 /// by the initial MAX6675 implementation.
