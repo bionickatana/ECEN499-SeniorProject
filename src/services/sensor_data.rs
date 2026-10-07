@@ -6,10 +6,12 @@
 
 pub const THERMOCOUPLE_COUNT: usize = 4;
 
+pub type TemperatureCelsius = fixed_point::FixedPoint<u32, 2>;
+
 #[derive(Copy, Clone)]
 #[allow(dead_code)]
 pub struct ThermocoupleReading {
-    pub temperature_celsius: Option<i16>,
+    pub temperature_celsius: Option<TemperatureCelsius>,
     pub fault: bool,
 }
 

@@ -12,3 +12,4 @@ rp235x-hal = {
 panic-halt = "0.2.0"
 pio = "0.3.0"
 embedded-hal = "1.0.0"
+fixed-point = {version = "1.0.2", default-features = false}

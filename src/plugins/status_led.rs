@@ -46,7 +46,11 @@ pub struct StatusLedPlugin {
 
 impl StatusLedPlugin {
     pub fn new(hardware: Ws2812Hardware) -> Self {
-        Self { hardware, phase: 0, breathing_phase: 0 }
+        Self {
+            hardware,
+            phase: 0,
+            breathing_phase: 0,
+        }
     }
 }
 
@@ -78,7 +82,6 @@ fn render_pattern(pattern: LedPattern, phase: u8, breathing_phase: u8) -> Color 
         LedPattern::Pulse(color) => color.scaled(pulse_brightness(phase)),
     }
 }
-
 
 fn breathing_brightness(phase: u8) -> u8 {
     let triangle = if phase < 128 { phase } else { 255 - phase };

@@ -38,11 +38,16 @@ pub const UART_RX_PIN: u8 = 1;
 
 /// Placeholder SPI pin assignment for the thermocouple bus.
 ///
-/// The final thermocouple contributor should replace these values and implement
-/// the SPI peripheral setup in `board.rs`.
+/// The MAX6675 boards expose SCK, CS, and SOMI. GP3 is configured as SPI TX so
+/// the RP2350 SPI peripheral can clock reads, but it is not connected to the
+/// MAX6675 boards.
 pub const SPI_SCK_PIN: u8 = 2;
 pub const SPI_MOSI_PIN: u8 = 3;
-pub const SPI_MISO_PIN: u8 = 4;
+pub const SPI_MISO_PIN: u8 = 0;
 
-/// Placeholder chip-select pins for four thermocouple devices.
-pub const THERMOCOUPLE_CS_PINS: [u8; 4] = [5, 6, 7, 8];
+/// MAX6675 SPI clock rate.
+pub const SPI_BAUD_HZ: u32 = 4_300_000;
+
+/// Chip-select pins for four thermocouple devices. Only channel 0 is populated
+/// by the initial MAX6675 implementation.
+pub const THERMOCOUPLE_CS_PINS: [u8; 4] = [1, 5, 6, 7];

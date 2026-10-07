@@ -7,11 +7,18 @@
 
 use rp235x_hal as hal;
 
+use embedded_hal::digital::OutputPin;
 use hal::{
     Sio, Watchdog,
     clocks::{Clock, init_clocks_and_plls},
+    fugit::RateExtU32,
+    gpio::{
+        FunctionSioOutput, FunctionSpi, Pin, PullDown,
+        bank0::{Gpio0, Gpio1, Gpio2, Gpio3},
+    },
     pac,
     pio::{PIOBuilder, PIOExt, ShiftDirection},
+    spi::{Enabled, Spi},
     timer::{CopyableTimer0, Timer},
 };
 
@@ -20,6 +27,25 @@ use crate::{config, plugins::status_led::Ws2812Hardware};
 pub struct Board {
     pub timer: Timer<CopyableTimer0>,
     pub status_led: Ws2812Hardware,
+    pub thermocouple: ThermocoupleHardware,
+}
+
+pub type ThermocoupleSpi = Spi<
+    Enabled,
+    pac::SPI0,
+    (
+        Pin<Gpio3, FunctionSpi, PullDown>,
+        Pin<Gpio0, FunctionSpi, PullDown>,
+        Pin<Gpio2, FunctionSpi, PullDown>,
+    ),
+    8,
+>;
+
+pub type ThermocoupleCs = Pin<Gpio1, FunctionSioOutput, PullDown>;
+
+pub struct ThermocoupleHardware {
+    pub spi: ThermocoupleSpi,
+    pub cs: ThermocoupleCs,
 }
 
 impl Board {
@@ -53,9 +79,19 @@ impl Board {
         let _ = config::NEOPIXEL_PIN;
         let status_led = init_status_led(pac.PIO0, &mut pac.RESETS, pins.gpio16, &clocks);
 
-        // UART and SPI are intentionally not initialized yet. When contributors
-        // implement them, add their hardware resource structs to `Board` so the
-        // matching plugin owns only the peripheral it needs.
+        let thermocouple = init_thermocouple_spi(
+            pac.SPI0,
+            &mut pac.RESETS,
+            pins.gpio0,
+            pins.gpio1,
+            pins.gpio2,
+            pins.gpio3,
+            &clocks,
+        );
+
+        // UART is intentionally not initialized yet. When contributors implement
+        // it, add its hardware resource struct to `Board` so the matching plugin
+        // owns only the peripheral it needs.
         let _ = config::UART_BAUD;
         let _ = config::UART_TX_PIN;
         let _ = config::UART_RX_PIN;
@@ -64,8 +100,42 @@ impl Board {
         let _ = config::SPI_MISO_PIN;
         let _ = config::THERMOCOUPLE_CS_PINS;
 
-        Self { timer, status_led }
+        Self {
+            timer,
+            status_led,
+            thermocouple,
+        }
     }
+}
+
+fn init_thermocouple_spi(
+    spi0: pac::SPI0,
+    resets: &mut pac::RESETS,
+    miso_pin: Pin<hal::gpio::bank0::Gpio0, hal::gpio::FunctionNull, PullDown>,
+    cs_pin: Pin<hal::gpio::bank0::Gpio1, hal::gpio::FunctionNull, PullDown>,
+    sck_pin: Pin<hal::gpio::bank0::Gpio2, hal::gpio::FunctionNull, PullDown>,
+    mosi_pin: Pin<hal::gpio::bank0::Gpio3, hal::gpio::FunctionNull, PullDown>,
+    clocks: &hal::clocks::ClocksManager,
+) -> ThermocoupleHardware {
+    let _ = config::SPI_MISO_PIN;
+    let _ = config::THERMOCOUPLE_CS_PINS[0];
+    let _ = config::SPI_SCK_PIN;
+    let _ = config::SPI_MOSI_PIN;
+
+    let mosi = mosi_pin.into_function::<FunctionSpi>();
+    let miso = miso_pin.into_function::<FunctionSpi>();
+    let sck = sck_pin.into_function::<FunctionSpi>();
+    let spi = Spi::<_, _, _, 8>::new(spi0, (mosi, miso, sck)).init(
+        resets,
+        clocks.peripheral_clock.freq(),
+        config::SPI_BAUD_HZ.Hz(),
+        embedded_hal::spi::MODE_0,
+    );
+
+    let mut cs = cs_pin.into_function::<FunctionSioOutput>();
+    let _ = cs.set_high();
+
+    ThermocoupleHardware { spi, cs }
 }
 
 fn init_status_led(

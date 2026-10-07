@@ -34,7 +34,11 @@ pub struct App {
 
 impl App {
     pub fn new(board: Board) -> Self {
-        let Board { timer, status_led } = board;
+        let Board {
+            timer,
+            status_led,
+            thermocouple,
+        } = board;
         let status_led = StatusLedPlugin::new(status_led);
 
         Self {
@@ -44,7 +48,7 @@ impl App {
             status: StatusService::new(),
             status_led,
             uart: UartPlugin::new(),
-            thermocouples: ThermocouplePlugin::new(),
+            thermocouples: ThermocouplePlugin::new(thermocouple),
             reporter: ReporterPlugin::new(),
         }
     }
