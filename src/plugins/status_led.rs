@@ -41,29 +41,33 @@ impl Ws2812Hardware {
 pub struct StatusLedPlugin {
     hardware: Ws2812Hardware,
     phase: u8,
+    breathing_phase: u8,
 }
 
 impl StatusLedPlugin {
     pub fn new(hardware: Ws2812Hardware) -> Self {
-        Self { hardware, phase: 0 }
+        Self { hardware, phase: 0, breathing_phase: 0 }
     }
 }
 
 impl Plugin for StatusLedPlugin {
     fn poll(&mut self, context: &mut AppContext<'_>) {
         let pattern = context.status.current().led_pattern();
-        let color = render_pattern(pattern, self.phase);
+        let color = render_pattern(pattern, self.phase, self.breathing_phase);
 
         self.hardware.write(color);
-        self.phase = self.phase.wrapping_add(4);
+        self.phase = self.phase.wrapping_add(1);
+        if self.phase % 2 == 0 {
+            self.breathing_phase = self.breathing_phase.wrapping_add(1);
+        }
     }
 }
 
-fn render_pattern(pattern: LedPattern, phase: u8) -> Color {
+fn render_pattern(pattern: LedPattern, phase: u8, breathing_phase: u8) -> Color {
     match pattern {
         LedPattern::Off => Color::BLACK,
         LedPattern::Solid(color) => color.scaled(32),
-        LedPattern::Breathing(color) => color.scaled(breathing_brightness(phase)),
+        LedPattern::Breathing(color) => color.scaled(breathing_brightness(breathing_phase)),
         LedPattern::Flashing(color) => {
             if phase < 128 {
                 color.scaled(48)
@@ -75,9 +79,10 @@ fn render_pattern(pattern: LedPattern, phase: u8) -> Color {
     }
 }
 
+
 fn breathing_brightness(phase: u8) -> u8 {
     let triangle = if phase < 128 { phase } else { 255 - phase };
-    4 + (triangle / 4)
+    33 - (triangle / 4)
 }
 
 fn pulse_brightness(phase: u8) -> u8 {
