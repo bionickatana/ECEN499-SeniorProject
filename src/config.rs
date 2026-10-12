@@ -16,12 +16,21 @@ pub const NEOPIXEL_PIN: u8 = 16;
 /// 1.25 us per bit, which is the standard 800 kHz WS2812 data rate.
 pub const WS2812_PIO_FREQ_HZ: u32 = 8_000_000;
 
-/// Cooperative scheduler delay.
-///
-/// Plugins must avoid long blocking work. The app loop sleeps for this long
-/// between polling each plugin so the firmware behaves like a simple cooperative
-/// task scheduler.
-pub const APP_LOOP_DELAY_MS: u32 = 5;
+/// Status LED animation cadence.
+pub const STATUS_LED_POLL_INTERVAL_MS: u32 = 5;
+
+/// MAX6675 thermocouple read interval.
+pub const THERMOCOUPLE_POLL_INTERVAL_MS: u32 = 1_000;
+
+/// USB debug console reporting interval.
+pub const DEBUG_CONSOLE_REPORT_INTERVAL_MS: u32 = 1_000;
+
+/// UART and reporter run every loop so they can react to events immediately.
+pub const UART_POLL_INTERVAL_MS: u32 = 0;
+pub const REPORTER_POLL_INTERVAL_MS: u32 = 0;
+
+/// UART activity status pulse duration.
+pub const UART_ACTIVITY_DURATION_MS: u32 = 150;
 
 /// Default UART baud rate placeholder.
 ///
@@ -38,11 +47,16 @@ pub const UART_RX_PIN: u8 = 1;
 
 /// Placeholder SPI pin assignment for the thermocouple bus.
 ///
-/// The final thermocouple contributor should replace these values and implement
-/// the SPI peripheral setup in `board.rs`.
+/// The MAX6675 boards expose SCK, CS, and SOMI. GP3 is configured as SPI TX so
+/// the RP2350 SPI peripheral can clock reads, but it is not connected to the
+/// MAX6675 boards.
 pub const SPI_SCK_PIN: u8 = 2;
 pub const SPI_MOSI_PIN: u8 = 3;
-pub const SPI_MISO_PIN: u8 = 4;
+pub const SPI_MISO_PIN: u8 = 0;
 
-/// Placeholder chip-select pins for four thermocouple devices.
-pub const THERMOCOUPLE_CS_PINS: [u8; 4] = [5, 6, 7, 8];
+/// MAX6675 SPI clock rate.
+pub const SPI_BAUD_HZ: u32 = 0_100_000;
+
+/// Chip-select pins for thermocouple devices. Channels 0 and 1 are currently
+/// populated by the MAX6675 implementation.
+pub const THERMOCOUPLE_CS_PINS: [u8; 4] = [1, 5, 6, 7];

@@ -11,7 +11,8 @@ use hal::{
 };
 
 use crate::{
-    plugins::{AppContext, Plugin},
+    config,
+    plugins::{AppContext, Plugin, PollTimer},
     services::status::{Color, LedPattern},
 };
 
@@ -40,18 +41,28 @@ impl Ws2812Hardware {
 
 pub struct StatusLedPlugin {
     hardware: Ws2812Hardware,
+    poll_timer: PollTimer,
     phase: u8,
     breathing_phase: u8,
 }
 
 impl StatusLedPlugin {
     pub fn new(hardware: Ws2812Hardware) -> Self {
-        Self { hardware, phase: 0, breathing_phase: 0 }
+        Self {
+            hardware,
+            poll_timer: PollTimer::new(config::STATUS_LED_POLL_INTERVAL_MS),
+            phase: 0,
+            breathing_phase: 0,
+        }
     }
 }
 
 impl Plugin for StatusLedPlugin {
-    fn poll(&mut self, context: &mut AppContext<'_>) {
+    fn poll(&mut self, context: &mut AppContext<'_>, now_ms: u64) {
+        if !self.poll_timer.should_run(now_ms) {
+            return;
+        }
+
         let pattern = context.status.current().led_pattern();
         let color = render_pattern(pattern, self.phase, self.breathing_phase);
 
@@ -78,7 +89,6 @@ fn render_pattern(pattern: LedPattern, phase: u8, breathing_phase: u8) -> Color 
         LedPattern::Pulse(color) => color.scaled(pulse_brightness(phase)),
     }
 }
-
 
 fn breathing_brightness(phase: u8) -> u8 {
     let triangle = if phase < 128 { phase } else { 255 - phase };

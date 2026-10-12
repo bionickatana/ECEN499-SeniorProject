@@ -2,24 +2,67 @@
 //!
 //! This file is the boundary between generic application structure and the
 //! RP2350/Waveshare hardware. Contributors changing pin assignments or adding
-//! UART/SPI peripheral initialization should start here and use constants from
+//! peripheral initialization should start here and use constants from
 //! `config.rs`.
 
 use rp235x_hal as hal;
 
+use core::mem::MaybeUninit;
+
+use embedded_hal::digital::OutputPin;
 use hal::{
     Sio, Watchdog,
     clocks::{Clock, init_clocks_and_plls},
+    fugit::RateExtU32,
+    gpio::{
+        FunctionSioOutput, FunctionSpi, Pin, PullDown,
+        bank0::{Gpio0, Gpio1, Gpio2, Gpio3, Gpio5},
+    },
     pac,
     pio::{PIOBuilder, PIOExt, ShiftDirection},
+    spi::{Enabled, Spi},
     timer::{CopyableTimer0, Timer},
 };
 
 use crate::{config, plugins::status_led::Ws2812Hardware};
 
+use usb_device::{bus::UsbBusAllocator, prelude::*};
+use usbd_serial::SerialPort;
+
 pub struct Board {
     pub timer: Timer<CopyableTimer0>,
     pub status_led: Ws2812Hardware,
+    pub thermocouple: ThermocoupleHardware,
+    pub debug_console: DebugConsoleHardware,
+}
+
+type UsbBus = hal::usb::UsbBus;
+
+static mut USB_BUS_ALLOCATOR: MaybeUninit<UsbBusAllocator<UsbBus>> = MaybeUninit::uninit();
+
+pub type ThermocoupleSpi = Spi<
+    Enabled,
+    pac::SPI0,
+    (
+        Pin<Gpio3, FunctionSpi, PullDown>,
+        Pin<Gpio0, FunctionSpi, PullDown>,
+        Pin<Gpio2, FunctionSpi, PullDown>,
+    ),
+    8,
+>;
+
+pub type ThermocoupleCs0 = Pin<Gpio1, FunctionSioOutput, PullDown>;
+pub type ThermocoupleCs1 = Pin<Gpio5, FunctionSioOutput, PullDown>;
+
+pub struct ThermocoupleHardware {
+    pub spi: ThermocoupleSpi,
+    pub cs0: ThermocoupleCs0,
+    pub cs1: ThermocoupleCs1,
+}
+
+pub struct DebugConsoleHardware {
+    pub usb_dev: UsbDevice<'static, UsbBus>,
+    pub serial: SerialPort<'static, UsbBus>,
 }
 
 impl Board {
@@ -53,19 +96,99 @@ impl Board {
         let _ = config::NEOPIXEL_PIN;
         let status_led = init_status_led(pac.PIO0, &mut pac.RESETS, pins.gpio16, &clocks);
 
-        // UART and SPI are intentionally not initialized yet. When contributors
-        // implement them, add their hardware resource structs to `Board` so the
-        // matching plugin owns only the peripheral it needs.
+        let thermocouple = init_thermocouple_spi(
+            pac.SPI0,
+            &mut pac.RESETS,
+            pins.gpio0,
+            pins.gpio1,
+            pins.gpio2,
+            pins.gpio3,
+            pins.gpio5,
+            &clocks,
+        );
+
+        let debug_console =
+            init_debug_console(pac.USB, pac.USB_DPRAM, clocks.usb_clock, &mut pac.RESETS);
+
+        // UART is intentionally not initialized yet. When contributors implement
+        // it, add its hardware resource struct to `Board` so the matching plugin
+        // owns only the peripheral it needs.
         let _ = config::UART_BAUD;
         let _ = config::UART_TX_PIN;
         let _ = config::UART_RX_PIN;
-        let _ = config::SPI_SCK_PIN;
-        let _ = config::SPI_MOSI_PIN;
-        let _ = config::SPI_MISO_PIN;
-        let _ = config::THERMOCOUPLE_CS_PINS;
 
-        Self { timer, status_led }
+        Self {
+            timer,
+            status_led,
+            thermocouple,
+            debug_console,
+        }
     }
+}
+
+fn init_debug_console(
+    usb: pac::USB,
+    usb_dpram: pac::USB_DPRAM,
+    usb_clock: hal::clocks::UsbClock,
+    resets: &mut pac::RESETS,
+) -> DebugConsoleHardware {
+    let usb_bus = hal::usb::UsbBus::new(usb, usb_dpram, usb_clock, true, resets);
+
+    // The USB device and CDC serial class borrow the bus allocator for the full
+    // firmware lifetime. Board initialization runs once before the app starts.
+    let usb_bus_allocator = unsafe {
+        let allocator = core::ptr::addr_of_mut!(USB_BUS_ALLOCATOR);
+        (*allocator).write(UsbBusAllocator::new(usb_bus));
+        &*(*allocator).as_ptr()
+    };
+
+    let serial = SerialPort::new(usb_bus_allocator);
+    let usb_dev = UsbDeviceBuilder::new(usb_bus_allocator, UsbVidPid(0x16c0, 0x27dd))
+        .strings(&[StringDescriptors::default()
+            .manufacturer("ECEN499")
+            .product("Thermocouple Debug Console")
+            .serial_number("sw_demo")])
+        .unwrap()
+        .max_packet_size_0(64)
+        .unwrap()
+        .device_class(2)
+        .build();
+
+    DebugConsoleHardware { usb_dev, serial }
+}
+
+fn init_thermocouple_spi(
+    spi0: pac::SPI0,
+    resets: &mut pac::RESETS,
+    miso_pin: Pin<hal::gpio::bank0::Gpio0, hal::gpio::FunctionNull, PullDown>,
+    cs_pin: Pin<hal::gpio::bank0::Gpio1, hal::gpio::FunctionNull, PullDown>,
+    sck_pin: Pin<hal::gpio::bank0::Gpio2, hal::gpio::FunctionNull, PullDown>,
+    mosi_pin: Pin<hal::gpio::bank0::Gpio3, hal::gpio::FunctionNull, PullDown>,
+    cs1_pin: Pin<hal::gpio::bank0::Gpio5, hal::gpio::FunctionNull, PullDown>,
+    clocks: &hal::clocks::ClocksManager,
+) -> ThermocoupleHardware {
+    let _ = config::SPI_MISO_PIN;
+    let _ = config::THERMOCOUPLE_CS_PINS[0];
+    let _ = config::THERMOCOUPLE_CS_PINS[1];
+    let _ = config::SPI_SCK_PIN;
+    let _ = config::SPI_MOSI_PIN;
+
+    let mosi = mosi_pin.into_function::<FunctionSpi>();
+    let miso = miso_pin.into_function::<FunctionSpi>();
+    let sck = sck_pin.into_function::<FunctionSpi>();
+    let spi = Spi::<_, _, _, 8>::new(spi0, (mosi, miso, sck)).init(
+        resets,
+        clocks.peripheral_clock.freq(),
+        config::SPI_BAUD_HZ.Hz(),
+        embedded_hal::spi::MODE_0,
+    );
+
+    let mut cs0 = cs_pin.into_function::<FunctionSioOutput>();
+    let _ = cs0.set_high();
+    let mut cs1 = cs1_pin.into_function::<FunctionSioOutput>();
+    let _ = cs1.set_high();
+
+    ThermocoupleHardware { spi, cs0, cs1 }
 }
 
 fn init_status_led(
