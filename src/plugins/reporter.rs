@@ -4,20 +4,29 @@
 //! sensor data and build responses, but it should not perform SPI reads itself.
 
 use crate::{
+    config,
     events::AppEvent,
-    plugins::{AppContext, Plugin},
+    plugins::{AppContext, Plugin, PollTimer},
 };
 
-pub struct ReporterPlugin;
+pub struct ReporterPlugin {
+    poll_timer: PollTimer,
+}
 
 impl ReporterPlugin {
     pub const fn new() -> Self {
-        Self
+        Self {
+            poll_timer: PollTimer::new(config::REPORTER_POLL_INTERVAL_MS),
+        }
     }
 }
 
 impl Plugin for ReporterPlugin {
-    fn poll(&mut self, context: &mut AppContext<'_>) {
+    fn poll(&mut self, context: &mut AppContext<'_>, now_ms: u64) {
+        if !self.poll_timer.should_run(now_ms) {
+            return;
+        }
+
         if !context.events.contains(AppEvent::ReportRequested) {
             return;
         }

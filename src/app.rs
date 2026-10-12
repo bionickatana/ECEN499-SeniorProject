@@ -1,15 +1,13 @@
-//! Application composition and cooperative scheduling.
+//! Application composition and cooperative polling.
 //!
-//! This is the pseudo-RTOS layer. It owns the plugins, polls each one regularly,
-//! and provides shared services through `AppContext`. New subsystem code should
-//! usually be added as a plugin instead of expanding this file.
+//! This is the pseudo-RTOS layer. It owns the plugins, polls each one every
+//! loop, and provides shared services through `AppContext`. Plugins own their
+//! poll cadence and return early when called before their next interval.
 
-use embedded_hal::delay::DelayNs;
 use rp235x_hal::timer::{CopyableTimer0, Timer};
 
 use crate::{
     board::Board,
-    config,
     events::{AppEvent, EventQueue},
     plugins::{
         AppContext, Plugin, debug_console::DebugConsolePlugin, reporter::ReporterPlugin,
@@ -31,7 +29,6 @@ pub struct App {
     thermocouples: ThermocouplePlugin,
     reporter: ReporterPlugin,
     debug_console: DebugConsolePlugin,
-    thermocouple_poll_count: u32,
 }
 
 impl App {
@@ -54,7 +51,6 @@ impl App {
             thermocouples: ThermocouplePlugin::new(thermocouple),
             reporter: ReporterPlugin::new(),
             debug_console: DebugConsolePlugin::new(debug_console),
-            thermocouple_poll_count: 0,
         }
     }
 
@@ -64,12 +60,13 @@ impl App {
 
         loop {
             self.poll_once();
-            self.timer.delay_ms(config::APP_LOOP_DELAY_MS);
         }
     }
 
     fn poll_once(&mut self) {
-        self.status.poll();
+        let now_ms = self.now_ms();
+
+        self.status.poll(now_ms);
 
         {
             let mut context = AppContext {
@@ -78,20 +75,14 @@ impl App {
                 status: &mut self.status,
             };
 
-            self.uart.poll(&mut context);
+            self.uart.poll(&mut context, now_ms);
             self.debug_console.poll_usb();
-            self.thermocouple_poll_count += 1;
-            let thermocouple_interval_polls =
-                (config::THERMOCOUPLE_READ_INTERVAL_MS / config::APP_LOOP_DELAY_MS).max(1);
-            if self.thermocouple_poll_count >= thermocouple_interval_polls {
-                self.thermocouple_poll_count = 0;
-                self.thermocouples.poll(&mut context);
-                self.debug_console.poll(&mut context);
-            }
-            self.reporter.poll(&mut context);
+            self.thermocouples.poll(&mut context, now_ms);
+            self.debug_console.poll(&mut context, now_ms);
+            self.reporter.poll(&mut context, now_ms);
 
             if context.events.contains(AppEvent::UartActivity) {
-                context.status.mark_uart_activity();
+                context.status.mark_uart_activity(now_ms);
             }
 
             if context.events.contains(AppEvent::SensorFault)
@@ -100,9 +91,13 @@ impl App {
                 context.status.set(SystemStatus::Error);
             }
 
-            self.status_led.poll(&mut context);
+            self.status_led.poll(&mut context, now_ms);
         }
 
         self.events.clear();
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.timer.get_counter().ticks() / 1_000
     }
 }

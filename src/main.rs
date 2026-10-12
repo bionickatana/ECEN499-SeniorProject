@@ -1,7 +1,7 @@
 //! Firmware entry point.
 //!
 //! Keep this file intentionally small. Hardware setup belongs in `board.rs`,
-//! application scheduling belongs in `app.rs`, and subsystem behavior belongs
+//! application composition belongs in `app.rs`, and subsystem behavior belongs
 //! in `plugins/`.
 
 #![no_std]

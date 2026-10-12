@@ -2,24 +2,29 @@
 //!
 //! This module owns MAX6675 polling and writes the latest decoded reading into
 //! `SensorDataService`. It does not format UART responses or drive the status
-//! LED directly.
+//! LED directly. Read cadence is controlled by the plugin's poll timer.
 
 use embedded_hal::{digital::OutputPin, spi::SpiBus};
 
 use crate::{
     board::ThermocoupleHardware,
+    config,
     events::AppEvent,
-    plugins::{AppContext, Plugin},
+    plugins::{AppContext, Plugin, PollTimer},
     services::sensor_data::ThermocoupleReading,
 };
 
 pub struct ThermocouplePlugin {
     hardware: ThermocoupleHardware,
+    poll_timer: PollTimer,
 }
 
 impl ThermocouplePlugin {
     pub const fn new(hardware: ThermocoupleHardware) -> Self {
-        Self { hardware }
+        Self {
+            hardware,
+            poll_timer: PollTimer::new(config::THERMOCOUPLE_POLL_INTERVAL_MS),
+        }
     }
 
     fn read_channel_0(&mut self) -> ThermocoupleReading {
@@ -41,7 +46,11 @@ impl ThermocouplePlugin {
 }
 
 impl Plugin for ThermocouplePlugin {
-    fn poll(&mut self, context: &mut AppContext<'_>) {
+    fn poll(&mut self, context: &mut AppContext<'_>, now_ms: u64) {
+        if !self.poll_timer.should_run(now_ms) {
+            return;
+        }
+
         let reading = self.read_channel_0();
         context.sensor_data.set_thermocouple(0, reading);
 

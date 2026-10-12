@@ -1,9 +1,10 @@
 # sw_demo
 
-Firmware for the RP2350-based demo board. The current working hardware feature is
-the onboard WS2812/NeoPixel status LED. UART communication, SPI thermocouple
-reads, and report formatting are intentionally stubbed so separate contributors
-can implement those pieces without editing a giant `main.rs`.
+Firmware for the RP2350-based demo board. The current implemented hardware paths
+cover the onboard WS2812/NeoPixel status LED, USB CDC debug output, and MAX6675
+SPI thermocouple reads for channel 0. UART communication and report formatting
+are still isolated as placeholders so separate contributors can implement those
+pieces without editing a giant `main.rs`.
 
 ## Project Goals
 
@@ -46,16 +47,17 @@ Current layout:
 ```text
 src/
   main.rs                 firmware entry point only
-  app.rs                  cooperative scheduler and plugin composition
+  app.rs                  cooperative plugin composition and event handling
   board.rs                RP2350/Waveshare hardware setup
   config.rs               board constants and placeholder pin assignments
   events.rs               small fixed event queue shared by plugins
 
   plugins/
-    mod.rs                Plugin trait and AppContext
+    mod.rs                Plugin trait, AppContext, and PollTimer
     status_led.rs         NeoPixel status LED renderer
     uart.rs               UART placeholder
-    thermocouples.rs      SPI thermocouple placeholder
+    thermocouples.rs      SPI thermocouple reader
+    debug_console.rs      USB CDC debug output
     reporter.rs           report-generation placeholder
 
   services/
@@ -69,12 +71,15 @@ src/
 `main.rs` should only initialize the board and start the app. Do not add UART,
 SPI, reporting, or LED logic here.
 
-`board.rs` owns hardware setup. Add final UART and SPI peripheral construction
-here when the pinout is known. If a pin assignment changes, update `config.rs`
-and the matching setup code in `board.rs`.
+`board.rs` owns hardware setup. Add UART construction here when that protocol is
+implemented, and update the SPI setup here when the thermocouple pinout changes
+or additional chip-selects are wired. If a pin assignment changes, update
+`config.rs` and the matching setup code in `board.rs`.
 
-`app.rs` owns scheduling. It creates plugins, builds `AppContext`, polls each
-plugin, and applies high-level event-to-status decisions.
+`app.rs` owns plugin composition and event handling. It creates plugins, builds
+`AppContext`, polls every plugin continuously, and applies high-level
+event-to-status decisions. Individual plugins own their poll cadence with their
+own `PollTimer` fields.
 
 `plugins/uart.rs` owns UART protocol work. Put RX parsing, TX buffering, and
 external-device command handling there.
@@ -98,23 +103,48 @@ thermocouple plugin writes this data, and the reporter reads it.
 
 ## Cooperative Plugin Loop
 
-The firmware is designed like a tiny cooperative scheduler:
+The firmware is designed like a tiny cooperative scheduler. The main loop runs
+continuously without a fixed sleep. Each plugin receives the current monotonic
+millisecond timestamp and returns immediately when called before its configured
+interval has elapsed.
 
 ```text
 loop:
+  read current time from hardware timer
+  poll status service timeout state
   poll UART plugin
+  poll USB debug console device
   poll thermocouple plugin
+  poll debug console output
   poll reporter plugin
   apply events to shared status
   poll status LED plugin
-  short delay
+  clear events
 ```
+
+Plugin poll intervals are configured in `src/config.rs` and enforced inside each
+plugin with `PollTimer`. An interval of `0` means the plugin runs every loop.
+The current defaults are:
+
+```text
+STATUS_LED_POLL_INTERVAL_MS          5 ms
+THERMOCOUPLE_POLL_INTERVAL_MS        1000 ms
+DEBUG_CONSOLE_REPORT_INTERVAL_MS     1000 ms
+UART_POLL_INTERVAL_MS                0 ms / every loop
+REPORTER_POLL_INTERVAL_MS            0 ms / every loop
+UART_ACTIVITY_DURATION_MS            150 ms
+```
+
+The MAX6675 is read once per second by default. USB CDC device polling still
+runs every loop so the host connection remains responsive; only formatted debug
+console output is rate-limited.
 
 Plugin rules:
 
 - Keep `poll()` short.
 - Do not wait in long blocking loops.
 - Store plugin progress in the plugin struct.
+- Store plugin timing state in the plugin struct with `PollTimer`.
 - Split slow work into states and advance one state per `poll()`.
 - Communicate with other plugins through `EventQueue` and services, not direct
   cross-plugin calls.
@@ -157,9 +187,16 @@ Placeholder hardware configuration is documented in `src/config.rs`:
 UART_TX_PIN
 UART_RX_PIN
 UART_BAUD
+STATUS_LED_POLL_INTERVAL_MS
+THERMOCOUPLE_POLL_INTERVAL_MS
+DEBUG_CONSOLE_REPORT_INTERVAL_MS
+UART_POLL_INTERVAL_MS
+REPORTER_POLL_INTERVAL_MS
+UART_ACTIVITY_DURATION_MS
 SPI_SCK_PIN
 SPI_MOSI_PIN
 SPI_MISO_PIN
+SPI_BAUD_HZ
 THERMOCOUPLE_CS_PINS
 ```
 
@@ -180,10 +217,13 @@ If you are implementing UART:
 If you are implementing thermocouple reads:
 
 - Start in `src/plugins/thermocouples.rs`.
-- Add SPI and CS setup to `src/board.rs`.
-- Update the SPI and CS pin constants in `src/config.rs`.
+- Update SPI and CS setup in `src/board.rs`.
+- Update the SPI timing and CS pin constants in `src/config.rs`.
 - Write readings into `SensorDataService`.
 - Emit `AppEvent::SensorUpdated` or `AppEvent::SensorFault`.
+- Keep sensor read cadence in the thermocouple plugin's `PollTimer` and
+  `THERMOCOUPLE_POLL_INTERVAL_MS`; MAX6675 reads must not run faster than four
+  times per second.
 
 If you are implementing reporting:
 
@@ -201,7 +241,6 @@ If you are changing status LED behavior:
 
 - Finalize UART protocol.
 - Finalize board pinout.
-- Select thermocouple IC driver strategy.
 - Implement SPI thermocouple reads for four chip-selects.
 - Implement UART TX/RX buffering.
 - Decide whether the cooperative loop is sufficient or whether RTIC/Embassy is

@@ -3,6 +3,8 @@
 //! Put status policy here. The NeoPixel driver should only render the selected
 //! pattern; it should not know why the application entered a status state.
 
+use crate::config;
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Color {
     pub red: u8,
@@ -65,7 +67,7 @@ impl SystemStatus {
 pub struct StatusService {
     current: SystemStatus,
     previous: SystemStatus,
-    activity_ticks_remaining: u8,
+    activity_expires_at_ms: Option<u64>,
 }
 
 impl StatusService {
@@ -73,7 +75,7 @@ impl StatusService {
         Self {
             current: SystemStatus::Booting,
             previous: SystemStatus::Booting,
-            activity_ticks_remaining: 0,
+            activity_expires_at_ms: None,
         }
     }
 
@@ -86,24 +88,25 @@ impl StatusService {
         self.current = status;
     }
 
-    pub fn mark_uart_activity(&mut self) {
+    pub fn mark_uart_activity(&mut self, now_ms: u64) {
         if self.current != SystemStatus::UartActivity {
             self.previous = self.current;
         }
 
         self.current = SystemStatus::UartActivity;
-        self.activity_ticks_remaining = 30;
+        self.activity_expires_at_ms = Some(now_ms.saturating_add(u64::from(
+            config::UART_ACTIVITY_DURATION_MS,
+        )));
     }
 
-    pub fn poll(&mut self) {
+    pub fn poll(&mut self, now_ms: u64) {
         if self.current != SystemStatus::UartActivity {
             return;
         }
 
-        self.activity_ticks_remaining = self.activity_ticks_remaining.saturating_sub(1);
-
-        if self.activity_ticks_remaining == 0 {
+        if self.activity_expires_at_ms.is_some_and(|expires_at| now_ms >= expires_at) {
             self.current = self.previous;
+            self.activity_expires_at_ms = None;
         }
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! This file is the boundary between generic application structure and the
 //! RP2350/Waveshare hardware. Contributors changing pin assignments or adding
-//! UART/SPI peripheral initialization should start here and use constants from
+//! peripheral initialization should start here and use constants from
 //! `config.rs`.
 
 use rp235x_hal as hal;

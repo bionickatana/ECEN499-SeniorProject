@@ -16,15 +16,21 @@ pub const NEOPIXEL_PIN: u8 = 16;
 /// 1.25 us per bit, which is the standard 800 kHz WS2812 data rate.
 pub const WS2812_PIO_FREQ_HZ: u32 = 8_000_000;
 
-/// Cooperative scheduler delay.
-///
-/// Plugins must avoid long blocking work. The app loop sleeps for this long
-/// between polling each plugin so the firmware behaves like a simple cooperative
-/// task scheduler.
-pub const APP_LOOP_DELAY_MS: u32 = 5;
+/// Status LED animation cadence.
+pub const STATUS_LED_POLL_INTERVAL_MS: u32 = 5;
 
 /// MAX6675 thermocouple read interval.
-pub const THERMOCOUPLE_READ_INTERVAL_MS: u32 = 1_000;
+pub const THERMOCOUPLE_POLL_INTERVAL_MS: u32 = 1_000;
+
+/// USB debug console reporting interval.
+pub const DEBUG_CONSOLE_REPORT_INTERVAL_MS: u32 = 1_000;
+
+/// UART and reporter run every loop so they can react to events immediately.
+pub const UART_POLL_INTERVAL_MS: u32 = 0;
+pub const REPORTER_POLL_INTERVAL_MS: u32 = 0;
+
+/// UART activity status pulse duration.
+pub const UART_ACTIVITY_DURATION_MS: u32 = 150;
 
 /// Default UART baud rate placeholder.
 ///
