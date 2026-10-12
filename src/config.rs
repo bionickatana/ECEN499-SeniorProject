@@ -57,6 +57,6 @@ pub const SPI_MISO_PIN: u8 = 0;
 /// MAX6675 SPI clock rate.
 pub const SPI_BAUD_HZ: u32 = 0_100_000;
 
-/// Chip-select pins for four thermocouple devices. Only channel 0 is populated
-/// by the initial MAX6675 implementation.
+/// Chip-select pins for thermocouple devices. Channels 0 and 1 are currently
+/// populated by the MAX6675 implementation.
 pub const THERMOCOUPLE_CS_PINS: [u8; 4] = [1, 5, 6, 7];

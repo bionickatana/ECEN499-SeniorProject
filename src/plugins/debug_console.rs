@@ -33,20 +33,18 @@ impl DebugConsolePlugin {
         let _ = self.hardware.usb_dev.poll(&mut [&mut self.hardware.serial]);
     }
 
-    fn write_reading(&mut self, reading: ThermocoupleReading){//, u8: idx) {
+    fn write_reading(&mut self, index: usize, reading: ThermocoupleReading) {
         let mut line: String<64> = String::new();
 
         if reading.fault {
-            //let _ = writeln!(&mut line, "TC{idx}: FAULT\r");
-            let _ = writeln!(&mut line, "TC0: FAULT\r");
-        }
-        if let Some(temperature) = reading.temperature_celsius {
+            let _ = writeln!(&mut line, "TC{index}: FAULT\r");
+        } else if let Some(temperature) = reading.temperature_celsius {
             let raw = temperature.0;
             let integer = raw / 100;
             let decimal = raw % 100;
-            let _ = writeln!(&mut line, "TC0: {integer}.{decimal:02} C\r");
+            let _ = writeln!(&mut line, "TC{index}: {integer}.{decimal:02} C\r");
         } else {
-            let _ = writeln!(&mut line, "TC0: unavailable\r");
+            let _ = writeln!(&mut line, "TC{index}: unavailable\r");
         }
 
         let _ = self.hardware.serial.write(line.as_bytes());
@@ -60,13 +58,8 @@ impl Plugin for DebugConsolePlugin {
         }
 
         self.poll_usb();
-        let reading = context.sensor_data.thermocouples()[0];
-        self.write_reading(reading);
-//        let reading = context.sensor_data.thermocouples()[1];
-//        self.write_reading(reading, 1);
-//        let reading = context.sensor_data.thermocouples()[2];
-//        self.write_reading(reading, 2);
-//        let reading = context.sensor_data.thermocouples()[3];
-//        self.write_reading(reading, 3);
+        let readings = context.sensor_data.thermocouples();
+        self.write_reading(0, readings[0]);
+        self.write_reading(1, readings[1]);
     }
 }

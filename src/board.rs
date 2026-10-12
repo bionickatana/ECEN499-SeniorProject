@@ -16,7 +16,7 @@ use hal::{
     fugit::RateExtU32,
     gpio::{
         FunctionSioOutput, FunctionSpi, Pin, PullDown,
-        bank0::{Gpio0, Gpio1, Gpio2, Gpio3},
+        bank0::{Gpio0, Gpio1, Gpio2, Gpio3, Gpio5},
     },
     pac,
     pio::{PIOBuilder, PIOExt, ShiftDirection},
@@ -51,11 +51,13 @@ pub type ThermocoupleSpi = Spi<
     8,
 >;
 
-pub type ThermocoupleCs = Pin<Gpio1, FunctionSioOutput, PullDown>;
+pub type ThermocoupleCs0 = Pin<Gpio1, FunctionSioOutput, PullDown>;
+pub type ThermocoupleCs1 = Pin<Gpio5, FunctionSioOutput, PullDown>;
 
 pub struct ThermocoupleHardware {
     pub spi: ThermocoupleSpi,
-    pub cs: ThermocoupleCs,
+    pub cs0: ThermocoupleCs0,
+    pub cs1: ThermocoupleCs1,
 }
 
 pub struct DebugConsoleHardware {
@@ -101,6 +103,7 @@ impl Board {
             pins.gpio1,
             pins.gpio2,
             pins.gpio3,
+            pins.gpio5,
             &clocks,
         );
 
@@ -161,10 +164,12 @@ fn init_thermocouple_spi(
     cs_pin: Pin<hal::gpio::bank0::Gpio1, hal::gpio::FunctionNull, PullDown>,
     sck_pin: Pin<hal::gpio::bank0::Gpio2, hal::gpio::FunctionNull, PullDown>,
     mosi_pin: Pin<hal::gpio::bank0::Gpio3, hal::gpio::FunctionNull, PullDown>,
+    cs1_pin: Pin<hal::gpio::bank0::Gpio5, hal::gpio::FunctionNull, PullDown>,
     clocks: &hal::clocks::ClocksManager,
 ) -> ThermocoupleHardware {
     let _ = config::SPI_MISO_PIN;
     let _ = config::THERMOCOUPLE_CS_PINS[0];
+    let _ = config::THERMOCOUPLE_CS_PINS[1];
     let _ = config::SPI_SCK_PIN;
     let _ = config::SPI_MOSI_PIN;
 
@@ -178,10 +183,12 @@ fn init_thermocouple_spi(
         embedded_hal::spi::MODE_0,
     );
 
-    let mut cs = cs_pin.into_function::<FunctionSioOutput>();
-    let _ = cs.set_high();
+    let mut cs0 = cs_pin.into_function::<FunctionSioOutput>();
+    let _ = cs0.set_high();
+    let mut cs1 = cs1_pin.into_function::<FunctionSioOutput>();
+    let _ = cs1.set_high();
 
-    ThermocoupleHardware { spi, cs }
+    ThermocoupleHardware { spi, cs0, cs1 }
 }
 
 fn init_status_led(

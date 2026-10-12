@@ -2,7 +2,7 @@
 
 Firmware for the RP2350-based demo board. The current implemented hardware paths
 cover the onboard WS2812/NeoPixel status LED, USB CDC debug output, and MAX6675
-SPI thermocouple reads for channel 0. UART communication and report formatting
+SPI thermocouple reads for channels 0 and 1. UART communication and report formatting
 are still isolated as placeholders so separate contributors can implement those
 pieces without editing a giant `main.rs`.
 
@@ -178,6 +178,8 @@ Known current hardware:
 MCU/board:        Waveshare RP2350-Zero style board
 Crystal:          12 MHz
 Status NeoPixel:  GPIO16
+Thermocouple TC0: SPI0, CS GPIO1
+Thermocouple TC1: SPI0, CS GPIO5
 Target:           thumbv8m.main-none-eabihf
 ```
 
@@ -241,7 +243,7 @@ If you are changing status LED behavior:
 
 - Finalize UART protocol.
 - Finalize board pinout.
-- Implement SPI thermocouple reads for four chip-selects.
+- Implement SPI thermocouple reads for chip-selects 2 and 3.
 - Implement UART TX/RX buffering.
 - Decide whether the cooperative loop is sufficient or whether RTIC/Embassy is
   worth adopting later.
