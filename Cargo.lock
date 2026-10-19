@@ -946,7 +946,9 @@ dependencies = [
 name = "sw_demo"
 version = "0.1.0"
 dependencies = [
+ "cortex-m",
  "embedded-hal 1.0.0",
+ "embedded-io 0.7.1",
  "fixed-point",
  "heapless 0.9.3",
  "panic-halt",

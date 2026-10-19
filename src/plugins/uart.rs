@@ -1,56 +1,22 @@
-//! UART communication plugin placeholder.
+//! UART communication plugin: RS-485 ladder-polling protocol.
 //!
 //! Put UART peripheral ownership, receive parsing, transmit buffering, and the
 //! external-device protocol here. Do not put UART command handling in `main.rs`
 //! or in the thermocouple plugin.
 //!
-//! `Rs485Hardware`/`init_rs485`/`Rs485Node` below are a draft of the RS-485
-//! ladder-polling protocol (PLC master request -> node response) and are not
-//! wired into `UartPlugin`, `board.rs`, or `app.rs` yet. `init_rs485` should
+//! `UartPlugin` implements the RS-485 node side of the protocol: the PLC
+//! master sends a 4-byte request (`D100` node address, `D101` instruction),
+//! and a node that matches `NODE_ID` replies with a 12-byte frame
+//! (`[RS D100 K2 D20 K6]`): node address, four data words, and a wrapping
+//! checksum.
+//!
+//! `UartPlugin` is not yet handed real hardware: `self.hardware` starts as
+//! `None` and `poll` is a no-op until something calls `set_hardware`.
+//! `init_rs485` sets up UART1 on GP4/GP5 and GP14 (RS-485 DE/!RE) and should
 //! move into `board.rs`'s `Board::init` the same way `init_thermocouple_spi`
-//! does, and `Rs485Node` should replace `UartPlugin`'s body once the hardware
-//! is threaded through `Board`/`App`.
-
-use crate::{
-    config,
-    events::AppEvent,
-    plugins::{AppContext, Plugin, PollTimer},
-};
-
-pub struct UartPlugin {
-    initialized: bool,
-    poll_timer: PollTimer,
-}
-
-impl UartPlugin {
-    pub const fn new() -> Self {
-        Self {
-            initialized: false,
-            poll_timer: PollTimer::new(config::UART_POLL_INTERVAL_MS),
-        }
-    }
-}
-
-impl Plugin for UartPlugin {
-    fn poll(&mut self, context: &mut AppContext<'_>, now_ms: u64) {
-        if !self.poll_timer.should_run(now_ms) {
-            return;
-        }
-
-        if !self.initialized {
-            self.initialized = true;
-            return;
-        }
-
-        // Future UART work belongs here:
-        // - read bytes without blocking
-        // - parse protocol frames or ASCII commands
-        // - push AppEvent::ReportRequested when the external device asks for data
-        // - push AppEvent::UartActivity on RX/TX so the status LED can pulse blue
-        let _ = context;
-        let _ = AppEvent::ReportRequested;
-    }
-}
+//! does; whoever wires that in then calls `uart.set_hardware(...)` from
+//! `app.rs` after `Board::init`. The `p1..p4` response payload is still a
+//! placeholder pending a real data source (`SensorDataService`).
 
 use embedded_hal::digital::OutputPin;
 use embedded_io::{Read, Write};
@@ -62,6 +28,12 @@ use rp235x_hal::{
     },
     pac,
     uart::{DataBits, Enabled, StopBits, UartConfig, UartPeripheral},
+};
+
+use crate::{
+    config,
+    events::AppEvent,
+    plugins::{AppContext, Plugin, PollTimer},
 };
 
 /// Match D10 = K2 in the PLC ladder (Node 0, 1, 2).
@@ -97,6 +69,7 @@ pub struct Rs485Hardware {
 ///
 /// Mirrors `board.rs`'s `init_*` helpers: takes raw peripherals/pins, returns
 /// the hardware resource struct the matching plugin will own.
+#[allow(dead_code)]
 pub fn init_rs485(
     uart1: pac::UART1,
     resets: &mut pac::RESETS,
@@ -128,29 +101,49 @@ pub fn init_rs485(
     Rs485Hardware { uart, rts }
 }
 
-/// Owns the RS-485 request/response state machine for one node.
-pub struct Rs485Node {
-    hardware: Rs485Hardware,
+/// Owns the RS-485 request/response state machine for this node.
+pub struct UartPlugin {
+    poll_timer: PollTimer,
+    hardware: Option<Rs485Hardware>,
     rx_buf: [u8; 4],
     rx_len: usize,
 }
 
-impl Rs485Node {
-    pub fn new(hardware: Rs485Hardware) -> Self {
+impl UartPlugin {
+    pub const fn new() -> Self {
         Self {
-            hardware,
+            poll_timer: PollTimer::new(config::UART_POLL_INTERVAL_MS),
+            hardware: None,
             rx_buf: [0; 4],
             rx_len: 0,
         }
     }
 
-    /// Runs one non-blocking step: consume at most one incoming byte, and
-    /// reply once a full 4-byte request addressed to `NODE_ID` has arrived.
-    pub fn poll(&mut self) {
-        let mut byte = [0u8; 1];
-        if self.hardware.uart.read(&mut byte).is_err() {
+    /// Hands the plugin its UART1/GPIO14 hardware once `board.rs` owns it.
+    /// Until this is called, `poll` is a no-op.
+    #[allow(dead_code)]
+    pub fn set_hardware(&mut self, hardware: Rs485Hardware) {
+        self.hardware = Some(hardware);
+    }
+}
+
+impl Plugin for UartPlugin {
+    fn poll(&mut self, context: &mut AppContext<'_>, now_ms: u64) {
+        if !self.poll_timer.should_run(now_ms) {
             return;
         }
+
+        let hardware = match &mut self.hardware {
+            Some(hardware) => hardware,
+            None => return,
+        };
+
+        let mut byte = [0u8; 1];
+        if hardware.uart.read(&mut byte).is_err() {
+            return;
+        }
+
+        context.events.push(AppEvent::UartActivity);
 
         self.rx_buf[self.rx_len] = byte[0];
         self.rx_len += 1;
@@ -167,38 +160,39 @@ impl Rs485Node {
             return;
         }
 
-        self.respond();
+        respond(hardware);
+        context.events.push(AppEvent::ReportRequested);
     }
+}
 
-    fn respond(&mut self) {
-        cortex_m::asm::delay(TURNAROUND_DELAY_CYCLES);
-        let _ = self.hardware.rts.set_high();
-        cortex_m::asm::delay(DRIVE_SETTLE_DELAY_CYCLES);
+fn respond(hardware: &mut Rs485Hardware) {
+    cortex_m::asm::delay(TURNAROUND_DELAY_CYCLES);
+    let _ = hardware.rts.set_high();
+    cortex_m::asm::delay(DRIVE_SETTLE_DELAY_CYCLES);
 
-        // Placeholder payload. Replace with real D21-D24 data once this
-        // plugin is wired into `AppContext`/`SensorDataService`.
-        let p1: u16 = 10;
-        let p2: u16 = 20;
-        let p3: u16 = 30;
-        let p4: u16 = 40;
-        let checksum = p1.wrapping_add(p2).wrapping_add(p3).wrapping_add(p4);
+    // Placeholder payload. Replace with real D21-D24 data once this plugin
+    // reads from `SensorDataService` via `AppContext`.
+    let p1: u16 = 10;
+    let p2: u16 = 20;
+    let p3: u16 = 30;
+    let p4: u16 = 40;
+    let checksum = p1.wrapping_add(p2).wrapping_add(p3).wrapping_add(p4);
 
-        // Exactly 12 bytes: 6 words matching [RS D100 K2 D20 K6].
-        // D20: Node Address
-        // D21-D24: Data words
-        // D25: Checksum
-        let mut response = [0u8; 12];
-        response[0..2].copy_from_slice(&NODE_ID.to_le_bytes());
-        response[2..4].copy_from_slice(&p1.to_le_bytes());
-        response[4..6].copy_from_slice(&p2.to_le_bytes());
-        response[6..8].copy_from_slice(&p3.to_le_bytes());
-        response[8..10].copy_from_slice(&p4.to_le_bytes());
-        response[10..12].copy_from_slice(&checksum.to_le_bytes());
+    // Exactly 12 bytes: 6 words matching [RS D100 K2 D20 K6].
+    // D20: Node Address
+    // D21-D24: Data words
+    // D25: Checksum
+    let mut response = [0u8; 12];
+    response[0..2].copy_from_slice(&NODE_ID.to_le_bytes());
+    response[2..4].copy_from_slice(&p1.to_le_bytes());
+    response[4..6].copy_from_slice(&p2.to_le_bytes());
+    response[6..8].copy_from_slice(&p3.to_le_bytes());
+    response[8..10].copy_from_slice(&p4.to_le_bytes());
+    response[10..12].copy_from_slice(&checksum.to_le_bytes());
 
-        let _ = self.hardware.uart.write_all(&response);
-        let _ = self.hardware.uart.flush();
+    let _ = hardware.uart.write_all(&response);
+    let _ = hardware.uart.flush();
 
-        cortex_m::asm::delay(TAIL_GUARD_DELAY_CYCLES);
-        let _ = self.hardware.rts.set_low();
-    }
+    cortex_m::asm::delay(TAIL_GUARD_DELAY_CYCLES);
+    let _ = hardware.rts.set_low();
 }
