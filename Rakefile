@@ -8,7 +8,7 @@ require "rbconfig"
 # Project configuration
 # ------------------------------------------------------------
 
-PROJECT_NAME = "blinky"
+PROJECT_NAME = "INL_temperature_nodes"
 
 ROOT_DIR = File.expand_path(__dir__)
 DEPS_DIR = File.join(ROOT_DIR, "deps")
