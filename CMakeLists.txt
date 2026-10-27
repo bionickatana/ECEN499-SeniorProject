@@ -1,12 +1,20 @@
 # --- CENTRAL CONFIGURATION ---
 set(MY_WS2812_PIN 16) # Status light
+
+set(UART_TX 4) # Uart out to controller
+set(UART_RX 5) # Uart in from controller
+set(UART_DE 14) # Used to set the directon duplex direction of the RS-485 chip
+
 set(SPI_PORT spi0) # The SPI port for the thermocouples
 set(SPI_SCK 2) # SPI clock pin
 set(SPI_MISO 0) # SPI Pico In, MAX6675 out
 set(SPI_TC01 1) # Chip Select TC1
-set(SPI_TC02 3) # Chip Select TC2
-set(SPI_TC03 6) # Chip Select TC3
-set(SPI_TC04 7) # Chip Select TC4
+set(SPI_TC02 6) # Chip Select TC2
+set(SPI_TC03 7) # Chip Select TC3
+set(SPI_TC04 8) # Chip Select TC4
+
+
+set(PROGRAM_VERSION "0.1.0") # Reported during the USB/UART protocol handshake
 # -----------------------------
 
 cmake_minimum_required(VERSION 3.13)
@@ -27,14 +35,24 @@ pico_sdk_init()
 
 add_executable(INL_temperature_nodes
     src/main.cpp
+    src/core/protocol.cpp
+    src/core/usb_transport.cpp
+    src/core/updater.cpp
+    src/core/controller.cpp
     src/tasks/status_light.cpp
     src/tasks/max6675.cpp
+)
+
+target_include_directories(INL_temperature_nodes PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/src
 )
 
 target_link_libraries(INL_temperature_nodes
     pico_stdlib
     pico_status_led
     hardware_spi
+    hardware_flash
+    pico_flash
 )
 
 target_compile_definitions(INL_temperature_nodes PRIVATE
@@ -46,13 +64,13 @@ target_compile_definitions(INL_temperature_nodes PRIVATE
     TC_SPI_CS02=${SPI_TC02}
     TC_SPI_CS03=${SPI_TC03}
     TC_SPI_CS04=${SPI_TC04}
+    PROGRAM_VERSION="${PROGRAM_VERSION}"
 
 )
 
-# Configure the application to start after the 32 KiB Picoboot3
-# bootloader area. Requires memory_flash.incl in this directory.
-#
-# Also requires section_boot2.incl for RP2040 only.
+# The board's physical 4 MiB flash remains visible to the flash driver. This
+# linker override limits only the executable image to the lower 2 MiB, leaving
+# the upper half available for a staged update image.
 pico_add_linker_script_override_path(
     INL_temperature_nodes
     ${CMAKE_CURRENT_LIST_DIR}

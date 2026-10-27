@@ -1,13 +1,23 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
+#include "hardware/flash.h"
+#include "pico/flash.h"
 
+#include "core/controller.hpp"
+#include "core/updater.hpp"
+#include "core/usb_transport.hpp"
 #include "tasks/status_light.hpp"
 #include "tasks/max6675.hpp"
 
 
 int main() {
     stdio_init_all();
+    hard_assert(flash_safe_execute_core_init());
+
+    uint8_t board_id_bytes[FLASH_UNIQUE_ID_SIZE_BYTES];
+    flash_get_unique_id(board_id_bytes);
+    const uint64_t board_id = protocol::read_u64_le(board_id_bytes);
 
     // Global SPI setup //
     // Note that the configuration for the pins is in the CMakeLists.txt file.
@@ -30,8 +40,20 @@ int main() {
     Max6675 thermocouple03(TC_SPI_PORT, TC_SPI_CS03, TC_SPI_SCK, TC_SPI_MISO);
     Max6675 thermocouple04(TC_SPI_PORT, TC_SPI_CS04, TC_SPI_SCK, TC_SPI_MISO);
 
+    // The controller owns several protocol buffers; static storage avoids
+    // exhausting the small startup stack on the RP2350.
+    static UsbTransport usb_transport;
+    static Rp2350Updater updater;
+    static Controller controller(board_id, usb_transport, updater);
+
 
     while(true) {
+        controller.poll();
+        updater.poll();
+        thermocouple01.run(&status);
+        thermocouple02.run(&status);
+        thermocouple03.run(&status);
+        thermocouple04.run(&status);
         statusLight.run(&status);
     }
 }
