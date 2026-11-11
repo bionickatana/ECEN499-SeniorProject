@@ -14,6 +14,10 @@ Max6675::Max6675(spi_inst_t *spi, uint pin_cs, uint pin_sck, uint pin_miso) {
     // Set up GPIO functions for SPI SCK and MISO (SO) pins
     gpio_set_function(sck_pin, GPIO_FUNC_SPI);
     gpio_set_function(miso_pin, GPIO_FUNC_SPI);
+    // MISO is shared across all four chips; pull it down so it has a defined
+    // rest state instead of floating (and picking up noise) when an unpopulated
+    // or deselected channel's CS is asserted.
+    gpio_pull_down(miso_pin);
 
     // Configure Chip Select (CS) pin as an output and set it high (deselected)
     gpio_init(cs_pin);
@@ -35,6 +39,7 @@ void Max6675::run(StatusObject* status_object) {
         // Read 16 bits from the MAX6675 sensor over SPI
         uint8_t buffer[2] = {0};
 
+        sleep_us(100); // Let the shared bus settle before pulling this chip's CS low
         gpio_put(cs_pin, 0); // Assert Chip Select (active low)
         spi_read_blocking(spi_port, 0xFF, buffer, 2);
         gpio_put(cs_pin, 1); // Deassert Chip Select
@@ -42,10 +47,16 @@ void Max6675::run(StatusObject* status_object) {
         // Combine the two bytes into a 16-bit word (MSB first)
         uint16_t raw_data = (buffer[0] << 8) | buffer[1];
 
+        // Bit D15 is a dummy sign bit the chip always drives low; if it's set,
+        // the frame was corrupted in transit (noise/bus glitch), so discard it.
+        bool frame_corrupt = (raw_data & 0x8000) != 0;
+
         // Check Bit D2: Thermocouple input open detector (1 = disconnected/open)
         bool thermocouple_open = (raw_data & 0x04) != 0;
 
-        if (thermocouple_open) {
+        if (frame_corrupt) {
+            *status_object = SENSOR_ERROR;
+        } else if (thermocouple_open) {
             // Update your status object pointer here if an error occurs, e.g.:
             *status_object = SENSOR_ERROR;
         } else {

@@ -9,6 +9,7 @@
 #include "core/usb_transport.hpp"
 #include "tasks/status_light.hpp"
 #include "tasks/max6675.hpp"
+#include "tasks/lcd1602.hpp"
 
 
 int main() {
@@ -40,6 +41,9 @@ int main() {
     Max6675 thermocouple03(TC_SPI_PORT, TC_SPI_CS03, TC_SPI_SCK, TC_SPI_MISO);
     Max6675 thermocouple04(TC_SPI_PORT, TC_SPI_CS04, TC_SPI_SCK, TC_SPI_MISO);
 
+    // LCD setup //
+    Lcd1602 lcd(LCD_I2C_PORT, LCD_SDA, LCD_SCL, LCD_ADDR, LCD_POWER_PIN);
+
     // The controller owns several protocol buffers; static storage avoids
     // exhausting the small startup stack on the RP2350.
     static UsbTransport usb_transport;
@@ -54,6 +58,11 @@ int main() {
         thermocouple02.run(&status);
         thermocouple03.run(&status);
         thermocouple04.run(&status);
+        lcd.set_temperature(0, thermocouple01.get_temperature());
+        lcd.set_temperature(1, thermocouple02.get_temperature());
+        lcd.set_temperature(2, thermocouple03.get_temperature());
+        lcd.set_temperature(3, thermocouple04.get_temperature());
+        lcd.run(&status);
         statusLight.run(&status);
     }
 }
