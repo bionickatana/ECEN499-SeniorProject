@@ -1,10 +1,6 @@
 # --- CENTRAL CONFIGURATION ---
 set(MY_WS2812_PIN 16) # Status light
 
-set(UART_TX 4) # Uart out to controller
-set(UART_RX 5) # Uart in from controller
-set(UART_DE 14) # Used to set the directon duplex direction of the RS-485 chip
-
 set(SPI_PORT spi0) # The SPI port for the thermocouples
 set(SPI_SCK 2) # SPI clock pin
 set(SPI_MISO 0) # SPI Pico In, MAX6675 out
@@ -13,8 +9,14 @@ set(SPI_TC02 6) # Chip Select TC2
 set(SPI_TC03 7) # Chip Select TC3
 set(SPI_TC04 8) # Chip Select TC4
 
+set(LCD_I2C_PORT i2c1) # The I2C port for the 20x4 LCD (GPIO 14/15 map to I2C1)
+set(LCD_SDA 14) # I2C data pin
+set(LCD_SCL 15) # I2C clock pin
+set(LCD_ADDR 0x27) # PCF8574 I2C backpack address
+set(LCD_POWER_PIN 26) # Gates the MOSFET switching the LCD's ground, turning the screen on/off
 
-set(PROGRAM_VERSION "0.1.0") # Reported during the USB/UART protocol handshake
+
+set(PROGRAM_VERSION "0.1.0") # Reported during the USB protocol handshake
 # -----------------------------
 
 cmake_minimum_required(VERSION 3.13)
@@ -41,6 +43,7 @@ add_executable(INL_temperature_nodes
     src/core/controller.cpp
     src/tasks/status_light.cpp
     src/tasks/max6675.cpp
+    src/tasks/lcd1602.cpp
 )
 
 target_include_directories(INL_temperature_nodes PRIVATE
@@ -51,6 +54,7 @@ target_link_libraries(INL_temperature_nodes
     pico_stdlib
     pico_status_led
     hardware_spi
+    hardware_i2c
     hardware_flash
     pico_flash
 )
@@ -64,6 +68,11 @@ target_compile_definitions(INL_temperature_nodes PRIVATE
     TC_SPI_CS02=${SPI_TC02}
     TC_SPI_CS03=${SPI_TC03}
     TC_SPI_CS04=${SPI_TC04}
+    LCD_I2C_PORT=${LCD_I2C_PORT}
+    LCD_SDA=${LCD_SDA}
+    LCD_SCL=${LCD_SCL}
+    LCD_ADDR=${LCD_ADDR}
+    LCD_POWER_PIN=${LCD_POWER_PIN}
     PROGRAM_VERSION="${PROGRAM_VERSION}"
 
 )
